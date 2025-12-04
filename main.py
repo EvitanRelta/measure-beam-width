@@ -60,13 +60,50 @@ class NewportStage:
             print(f"[Stage] Comms Error: {e}")
             return ""
 
+    def _get_controller_state(self) -> str:
+        """
+        Parses 'TS' command to determine controller state.
+        Returns the last 2 hex characters of the response.
+        """
+        resp = self._send_command("TS")
+        # Response format: 1TSxxxxxx (where last 2 chars are the state in Hex)
+        clean_resp = resp.replace(f"{self.axis}TS", "").strip()
+
+        if len(clean_resp) < 6:
+            return "00"
+
+        return clean_resp[-2:]
+
+    def _wait_for_ready(self, timeout: float = 30.0) -> None:
+        """
+        Blocks until state returns to a READY code (32-35).
+        """
+        start = time.time()
+        while (time.time() - start) < timeout:
+            state = self._get_controller_state()
+
+            # 32: Ready from Homing
+            # 33: Ready from Moving
+            # 34: Ready from Disable
+            # 35: Ready from Jogging
+            if state in ["32", "33", "34", "35"]:
+                return
+
+            # Check for Disable/Configuration states which imply failure
+            if state in ["3C", "3D", "3E", "14"]:
+                print(f"[Stage] Error: Controller entered state {state} during operation.")
+                return
+
+            time.sleep(0.1)
+
+        print("[Stage] Warning: Operation Timed Out")
+
     def get_error(self) -> str:
         """
         Queries the controller for memorized errors using 'TE'.
         Returns empty string if no error.
         """
         resp = self._send_command("TE")
-        # Format is usually "1TE@" for no error
         clean_resp = resp.replace(f"{self.axis}TE", "").strip()
 
         if clean_resp != "@":
@@ -85,38 +122,57 @@ class NewportStage:
         except ValueError:
             return -999.0
 
+    def home(self) -> None:
+        """
+        Performs homing using 'OR'.
+        Required if controller is in 'Not Referenced' state (0A-11).
+        """
+        state = self._get_controller_state()
+
+        # Check if already Ready (32-35)
+        if state in ["32", "33", "34", "35"]:
+            print("[Stage] Already Referenced (Ready). Skipping Homing.")
+            return
+
+        # Check if Moving (28) or Homing (1E, 1F)
+        if state in ["28", "1E", "1F"]:
+            print("[Stage] Stage is currently moving/homing. Waiting...")
+            self._wait_for_ready()
+            return
+
+        # Not Referenced states (0A-11) require OR command
+        print("[Stage] Homing (OR command)...")
+        self._send_command("OR")
+
+        self._wait_for_ready(timeout=60.0)
+        print("[Stage] Homing Complete.")
+
     def move_absolute(self, target_mm: float) -> None:
         """
-        Moves stage to target and polls position until arrival.
+        Moves stage to target using 'PA'.
+        Enforces Ready state check before moving.
         """
-        print(f"[Stage] Moving to {target_mm} mm...")
+        # Verify we are allowed to move
+        state = self._get_controller_state()
+        if state not in ["32", "33", "34", "35"]:
+            print(f"[Stage] Error: Cannot Move. Controller in state '{state}' (Not Ready).")
+            return
 
+        print(f"[Stage] Moving to {target_mm} mm...")
         self._send_command(f"PA{target_mm}")
 
-        # Check if the command was rejected immediately
+        # Check for immediate rejection error
         err = self.get_error()
         if err:
             print(f"[Stage] Move Aborted. Controller Error: {err}")
             return
 
-        # Poll until position is reached
-        # We poll position (TP) instead of Status (TS) to ensure precise arrival
-        start_time = time.time()
-        timeout = 20.0
+        # Wait for state machine to return to Ready
+        self._wait_for_ready()
 
-        while True:
-            current_pos = self.get_position()
-
-            # Tolerance of 0.005mm
-            if abs(current_pos - target_mm) < 0.005:
-                print(f"[Stage] Reached {current_pos:.4f} mm.")
-                break
-
-            if time.time() - start_time > timeout:
-                print("[Stage] WARNING: Move Timed Out!")
-                break
-
-            time.sleep(0.2)
+        # Confirm final position
+        final_pos = self.get_position()
+        print(f"[Stage] Reached {final_pos:.4f} mm.")
 
 
 class BeamGageCamera:
@@ -143,7 +199,7 @@ class BeamGageCamera:
     def _load_dotnet(self, path: str) -> bool:
         try:
             sys.path.append(path)
-            clr.AddReference(path) # type: ignore
+            clr.AddReference(path)  # type: ignore
             return True
         except Exception:
             print(f"[Camera] Failed to load DLL at: {path}")
@@ -196,6 +252,10 @@ def main() -> None:
     print("--- Laser Characterization Script ---")
 
     stage = NewportStage(MOTOR_PORT, MOTOR_BAUD)
+
+    # Ensure stage is referenced before any moves
+    stage.home()
+
     cam = BeamGageCamera(BEAMGAGE_DLL_PATH)
 
     # 1. Manual Setup (Gain/Exposure)
