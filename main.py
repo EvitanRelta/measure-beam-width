@@ -143,7 +143,7 @@ class BeamGageCamera:
     def _load_dotnet(self, path: str) -> bool:
         try:
             sys.path.append(path)
-            clr.AddReference(path)
+            clr.AddReference(path) # type: ignore
             return True
         except Exception:
             print(f"[Camera] Failed to load DLL at: {path}")
