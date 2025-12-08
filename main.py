@@ -5,9 +5,13 @@ import beamgagepy
 def main() -> None:
     beamgage = beamgagepy.BeamGagePy("camera", True)
     
+    # Use full precision. Default is 3 dp. We set it to 15 (standard double precision).
+    beamgage.spatial_results.precision = 15
+
     beamgage.data_source.stop()
-    
+
     try:
+        # Restores computational methods (e.g. ISO Clip levels) and camera config
         beamgage.save_load_setup.load_setup("beammaker.bgsetup")
     except Exception:
         pass
@@ -33,15 +37,15 @@ def main() -> None:
             beamgage.data_source.ultracal()
 
             input("Unblock beam and press Enter to measure...")
-            
+
             samples_x: list[float] = []
             samples_y: list[float] = []
 
             def sample_handler() -> None:
-                # Stop adding to list if we reached target to prevent huge overshoots
+                # Prevent collecting more samples than needed
                 if len(samples_x) >= SAMPLES_TARGET:
                     return
-                
+
                 beamgage.spatial_results.update()
                 samples_x.append(beamgage.spatial_results.d_4sigma_x)
                 samples_y.append(beamgage.spatial_results.d_4sigma_y)
@@ -56,17 +60,18 @@ def main() -> None:
             beamgage.data_source.stop()
             beamgage.frameevents.OnNewFrame -= sample_handler
 
-            # Ensure exactly SAMPLES_TARGET are used even if handler overshot
-            final_x = samples_x[:SAMPLES_TARGET]
-            final_y = samples_y[:SAMPLES_TARGET]
+            assert len(samples_x) == SAMPLES_TARGET
+            assert len(samples_y) == SAMPLES_TARGET
 
-            mean_x: float = statistics.mean(final_x)
-            mean_y: float = statistics.mean(final_y)
-            
-            print(f"\nMean D4Sigma X: {mean_x:.4f} | Mean D4Sigma Y: {mean_y:.4f} (Count: {len(final_x)})")
+            mean_x: float = statistics.mean(samples_x)
+            mean_y: float = statistics.mean(samples_y)
+
+            # Formatting to 9 decimal places to show the increased precision
+            print(f"\nMean D4Sigma X: {mean_x:.9f} | Mean D4Sigma Y: {mean_y:.9f} (Count: {len(samples_x)})")
 
     finally:
         beamgage.shutdown()
+
 
 if __name__ == "__main__":
     main()
