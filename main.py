@@ -1,7 +1,8 @@
 import time
 import statistics
 import configparser
-import beamgagepy
+import mock_beamgagepy as beamgagepy
+# import beamgagepy
 
 
 def main() -> None:
@@ -87,7 +88,9 @@ def main() -> None:
             mean_y: float = statistics.mean(samples_y)
 
             # Formatting to 9 decimal places to show the increased precision
-            print(f"\nMean D4Sigma X: {mean_x:.9f} | Mean D4Sigma Y: {mean_y:.9f} (Count: {len(samples_x)})")
+            print(
+                f"\nMean D4Sigma X: {mean_x:.9f} | Mean D4Sigma Y: {mean_y:.9f} (Count: {len(samples_x)})"
+            )
 
     finally:
         beamgage.shutdown()
