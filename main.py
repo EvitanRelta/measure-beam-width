@@ -12,7 +12,7 @@ def main() -> None:
 
     try:
         # Restores computational methods (e.g. ISO Clip levels) and camera config
-        beamgage.save_load_setup.load_setup("beammaker.bgsetup")
+        beamgage.save_load_setup.load_setup("automation.bgsetup")
     except Exception:
         pass
 
