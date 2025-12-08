@@ -1,10 +1,12 @@
 import time
 import statistics
+import configparser
 import beamgagepy
+
 
 def main() -> None:
     beamgage = beamgagepy.BeamGagePy("camera", True)
-    
+
     # Use full precision. Default is 3 dp. We set it to 15 (standard double precision).
     beamgage.spatial_results.precision = 15
 
@@ -16,18 +18,36 @@ def main() -> None:
     except Exception:
         pass
 
-    TOTAL_RUNS: int = 3
     SAMPLES_TARGET: int = 75
 
+    # Read configuration from .ini file
+    config = configparser.ConfigParser()
     try:
-        for i in range(TOTAL_RUNS):
-            print(f"\n--- Run {i + 1}/{TOTAL_RUNS} ---")
+        config.read("config.ini")
+    except Exception as e:
+        print(f"Error reading config.ini: {e}")
+        return
+
+    # Get all measurement-set sections
+    measurement_sets = [
+        section
+        for section in config.sections()
+        if section.startswith("measurement-set-")
+    ]
+    if not measurement_sets:
+        print("No measurement-set sections found in config.ini")
+        return
+
+    try:
+        for i, section in enumerate(measurement_sets, 1):
+            print(f"\n--- {section} ({i}/{len(measurement_sets)}) ---")
 
             try:
-                gain_val: float = float(input("Enter Gain: "))
-                exp_val: float = float(input("Enter Exposure: "))
-            except ValueError:
-                print("Invalid input.")
+                gain_val: float = float(config[section]["gain"])
+                exp_val: float = float(config[section]["exposure"])
+                print(f"Gain: {gain_val}, Exposure: {exp_val}")
+            except (KeyError, ValueError) as e:
+                print(f"Invalid configuration in {section}: {e}")
                 continue
 
             beamgage.data_source.gain = gain_val
@@ -49,7 +69,7 @@ def main() -> None:
                 beamgage.spatial_results.update()
                 samples_x.append(beamgage.spatial_results.d_4sigma_x)
                 samples_y.append(beamgage.spatial_results.d_4sigma_y)
-                print(f"Sample {len(samples_x)}/{SAMPLES_TARGET}", end='\r')
+                print(f"Sample {len(samples_x)}/{SAMPLES_TARGET}", end="\r")
 
             beamgage.frameevents.OnNewFrame += sample_handler
             beamgage.data_source.start()
