@@ -2,13 +2,13 @@ import sys
 import time
 import clr  # Requires: pip install pythonnet
 import serial  # Requires: pip install pyserial
-from typing import Any, Final, List
+from typing import List
 
 # ==========================================
 # CONFIGURATION
 # ==========================================
 MOTOR_PORT: str = "COM5"
-MOTOR_BAUD: int = 921600
+MOTOR_BAUD: int = 921600  # according to "CONEX-CC Single-Axis DC Motion Controller Documentation"
 
 # TODO: Verify this path matches your installed version of BeamGage.
 BEAMGAGE_DLL_PATH: str = r"C:\Program Files\Spiricon\BeamGage Professional\Automation\Spiricon.Automation.dll"
@@ -25,39 +25,29 @@ class NewportStage:
     def __init__(self, port: str, baud_rate: int) -> None:
         self.axis: int = 1
         print(f"[Stage] Connecting to {port}...")
-
-        try:
-            self.ser = serial.Serial(
-                port=port,
-                baudrate=baud_rate,
-                bytesize=serial.EIGHTBITS,
-                parity=serial.PARITY_NONE,
-                stopbits=serial.STOPBITS_ONE,
-                xonxoff=True,
-                rtscts=False,
-                timeout=0.1,
-            )
-            self.ser.read_all()  # Flush garbage from buffer
-        except serial.SerialException as e:
-            print(f"[Stage] Critical Error: {e}")
-            sys.exit(1)
+        self.ser = serial.Serial(
+            port=port,
+            baudrate=baud_rate,
+            bytesize=serial.EIGHTBITS,
+            parity=serial.PARITY_NONE,
+            stopbits=serial.STOPBITS_ONE,
+            xonxoff=True,
+            rtscts=False,
+            timeout=0.1,
+        )
+        self.ser.read_all()  # Flush garbage from buffer
+        self._home()
 
     def _send_command(self, cmd_str: str) -> str:
         """
         Sends command formatted as [Axis][Command][Value].
         e.g., Input 'PA10.0' -> Sends '1PA10.0\\r\\n'
         """
-        full_cmd = f"{self.axis}{cmd_str}\r\n"
-
-        try:
-            self.ser.write(full_cmd.encode("ascii"))
-            # Small sleep required for controller processing time
-            time.sleep(0.02)
-            response = self.ser.readline().decode("ascii").strip()
-            return response
-        except Exception as e:
-            print(f"[Stage] Comms Error: {e}")
-            return ""
+        self.ser.write(f"{self.axis}{cmd_str}\r\n".encode("ascii"))
+        # Small sleep required for controller processing time
+        time.sleep(0.02)
+        response = self.ser.readline().decode("ascii").strip()
+        return response
 
     def _get_controller_state(self) -> str:
         """
@@ -67,16 +57,11 @@ class NewportStage:
         resp = self._send_command("TS")
         # Response format: 1TSxxxxxx (where last 2 chars are the state in Hex)
         clean_resp = resp.replace(f"{self.axis}TS", "").strip()
-
-        if len(clean_resp) < 6:
-            return "00"
-
+        assert len(clean_resp) == 6, f"Expected 6 char controller state, got: '{clean_resp}'"
         return clean_resp[-2:]
 
     def _wait_for_ready(self, timeout: float = 30.0) -> None:
-        """
-        Blocks until state returns to a READY code (32-35).
-        """
+        """Blocks until state returns to a READY code (32-35)."""
         start = time.time()
         while (time.time() - start) < timeout:
             state = self._get_controller_state()
@@ -96,6 +81,31 @@ class NewportStage:
             time.sleep(0.1)
 
         print("[Stage] Warning: Operation Timed Out")
+
+    def _home(self) -> None:
+        """
+        Performs homing using 'OR'.
+        Required if controller is in 'Not Referenced' state (0A-11).
+        """
+        state = self._get_controller_state()
+
+        # Check if already Ready (32-35)
+        if state in ["32", "33", "34", "35"]:
+            print("[Stage] Already Referenced (Ready). Skipping Homing.")
+            return
+
+        # Check if Moving (28) or Homing (1E, 1F)
+        if state in ["28", "1E", "1F"]:
+            print("[Stage] Stage is currently moving/homing. Waiting...")
+            self._wait_for_ready()
+            return
+
+        # Not Referenced states (0A-11) require OR command
+        print("[Stage] Homing (OR command)...")
+        self._send_command("OR")
+
+        self._wait_for_ready(timeout=60.0)
+        print("[Stage] Homing Complete.")
 
     def get_error(self) -> str:
         """
@@ -120,31 +130,6 @@ class NewportStage:
             return float(clean_resp)
         except ValueError:
             return -999.0
-
-    def home(self) -> None:
-        """
-        Performs homing using 'OR'.
-        Required if controller is in 'Not Referenced' state (0A-11).
-        """
-        state = self._get_controller_state()
-
-        # Check if already Ready (32-35)
-        if state in ["32", "33", "34", "35"]:
-            print("[Stage] Already Referenced (Ready). Skipping Homing.")
-            return
-
-        # Check if Moving (28) or Homing (1E, 1F)
-        if state in ["28", "1E", "1F"]:
-            print("[Stage] Stage is currently moving/homing. Waiting...")
-            self._wait_for_ready()
-            return
-
-        # Not Referenced states (0A-11) require OR command
-        print("[Stage] Homing (OR command)...")
-        self._send_command("OR")
-
-        self._wait_for_ready(timeout=60.0)
-        print("[Stage] Homing Complete.")
 
     def move_absolute(self, target_mm: float) -> None:
         """
@@ -175,9 +160,7 @@ class NewportStage:
 
 
 class BeamGageCamera:
-    """
-    Handles Ophir BeamGage Automation via .NET interop.
-    """
+    """Handles Ophir BeamGage Automation via .NET interop."""
 
     def __init__(self, dll_path: str) -> None:
         print("[Camera] Initializing BeamGage Automation...")
@@ -251,10 +234,6 @@ def main() -> None:
     print("--- Laser Characterization Script ---")
 
     stage = NewportStage(MOTOR_PORT, MOTOR_BAUD)
-
-    # Ensure stage is referenced before any moves
-    stage.home()
-
     cam = BeamGageCamera(BEAMGAGE_DLL_PATH)
 
     # 1. Manual Setup (Gain/Exposure)
