@@ -7,16 +7,14 @@ from typing import Any, Final, List
 # ==========================================
 # CONFIGURATION
 # ==========================================
-
-# TODO: Check Windows Device Manager -> Ports to confirm the correct COM number.
-MOTOR_PORT: Final[str] = "COM3"
-MOTOR_BAUD: Final[int] = 57600
+MOTOR_PORT: str = "COM5"
+MOTOR_BAUD: int = 921600
 
 # TODO: Verify this path matches your installed version of BeamGage.
-BEAMGAGE_DLL_PATH: Final[str] = r"C:\Program Files\Spiricon\BeamGage Professional\Automation\Spiricon.Automation.dll"
+BEAMGAGE_DLL_PATH: str = r"C:\Program Files\Spiricon\BeamGage Professional\Automation\Spiricon.Automation.dll"
 
 # Number of frames to average per position
-READINGS_TO_AVERAGE: Final[int] = 100
+READINGS_TO_AVERAGE: int = 100
 
 
 class NewportStage:
@@ -36,6 +34,7 @@ class NewportStage:
                 parity=serial.PARITY_NONE,
                 stopbits=serial.STOPBITS_ONE,
                 xonxoff=True,
+                rtscts=False,
                 timeout=0.1,
             )
             self.ser.read_all()  # Flush garbage from buffer
