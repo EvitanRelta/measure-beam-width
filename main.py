@@ -145,7 +145,7 @@ def main() -> None:
                 continue
 
             for position_index, position in enumerate(positions, 1):
-                print(f"\nMoving stage to position {position_index}/{len(positions)}: {position:.4f} mm")
+                print(f"\nMoving stage to position {position_index}/{len(positions)}: {position:.2f} mm")
                 stage.move_absolute(position)
                 stage_error = stage.get_error()
                 if stage_error:
@@ -177,8 +177,8 @@ def main() -> None:
                 beamgage.data_source.stop()
                 beamgage.frameevents.OnNewFrame -= sample_handler
 
-                mean_x: float = statistics.mean(samples_x)
-                mean_y: float = statistics.mean(samples_y)
+                mean_x: float = round(statistics.mean(samples_x), num_output_decimals)
+                mean_y: float = round(statistics.mean(samples_y), num_output_decimals)
 
                 # Write to CSV
                 csv_writer.writerow(
@@ -188,15 +188,20 @@ def main() -> None:
                         exp_val,
                         len(samples_x),
                         position,
-                        round(mean_x, num_output_decimals),
-                        round(mean_y, num_output_decimals),
+                        mean_x,
+                        mean_y,
                     ]
                 )
                 csv_file.flush()
+                print(
+                    f"Position {position:.2f} mm -> Mean D4Sigma X: {mean_x:.{num_output_decimals}f} | Mean D4Sigma Y: {mean_y:.{num_output_decimals}f} ({len(samples_x)} samples)"
+                )
 
     finally:
+        print("\n\nGracefully shutting down...")
         csv_file.close()
         beamgage.shutdown()
+        print("Successfully shutdown\n")
 
 
 if __name__ == "__main__":
