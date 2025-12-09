@@ -9,7 +9,6 @@ import mock_beamgagepy as beamgagepy
 MOTOR_PORT: str = "COM5"
 MOTOR_BAUD: int = 921600  # according to "CONEX-CC Single-Axis DC Motion Controller Documentation"
 BGSETUP_PATH: str = "./automation.bgsetup"
-NUM_SAMPLES: int = 75
 
 
 def main() -> None:
@@ -26,7 +25,6 @@ def main() -> None:
     except Exception:
         pass
 
-
     # Read configuration from .ini file
     config = configparser.ConfigParser()
     try:
@@ -42,6 +40,8 @@ def main() -> None:
         return
 
     try:
+        num_samples = config.getint("config", "num-samples")
+
         for i, section in enumerate(measurement_sets, 1):
             print(f"\n--- {section} ({i}/{len(measurement_sets)}) ---")
 
@@ -66,25 +66,25 @@ def main() -> None:
 
             def sample_handler() -> None:
                 # Prevent collecting more samples than needed
-                if len(samples_x) >= NUM_SAMPLES:
+                if len(samples_x) >= num_samples:
                     return
 
                 beamgage.spatial_results.update()
                 samples_x.append(beamgage.spatial_results.d_4sigma_x)
                 samples_y.append(beamgage.spatial_results.d_4sigma_y)
-                print(f"Sample {len(samples_x)}/{NUM_SAMPLES}", end="\r")
+                print(f"Sample {len(samples_x)}/{num_samples}", end="\r")
 
             beamgage.frameevents.OnNewFrame += sample_handler
             beamgage.data_source.start()
 
-            while len(samples_x) < NUM_SAMPLES:
+            while len(samples_x) < num_samples:
                 time.sleep(0.01)
 
             beamgage.data_source.stop()
             beamgage.frameevents.OnNewFrame -= sample_handler
 
-            assert len(samples_x) == NUM_SAMPLES
-            assert len(samples_y) == NUM_SAMPLES
+            assert len(samples_x) == num_samples
+            assert len(samples_y) == num_samples
 
             mean_x: float = statistics.mean(samples_x)
             mean_y: float = statistics.mean(samples_y)
