@@ -1,6 +1,8 @@
 import time
 import statistics
 import configparser
+import ast
+import sys
 from mock_beamgagepy import BeamGagePy  # from beamgagepy import BeamGagePy
 from mock_stage import NewportStage  # from stage import NewportStage
 
@@ -25,8 +27,8 @@ def main() -> None:
     except Exception:
         pass
 
-    # Read configuration from .ini file
-    config = configparser.ConfigParser()
+    # Read configuration from .ini file. Preserve inline comments in config.ini values.
+    config = configparser.ConfigParser(inline_comment_prefixes=("#", ";"))
     try:
         config.read("config.ini")
     except Exception as e:
@@ -59,38 +61,69 @@ def main() -> None:
             print("Running Ultracal...")
             beamgage.data_source.ultracal()
 
-            input("Unblock beam and press Enter to measure...")
+            if sys.stdin is None or not sys.stdin.isatty():
+                print("Unblock beam before measuring (no interactive input available).")
+            else:
+                input("Unblock beam and press Enter to measure...")
 
-            samples_x: list[float] = []
-            samples_y: list[float] = []
+            positions_raw = config[section].get("absolute-positions", "")
+            if not positions_raw:
+                print(f"No absolute-positions defined in {section}. Skipping this measurement set.")
+                continue
 
-            def sample_handler() -> None:
-                # Prevent collecting more samples than needed
-                if len(samples_x) >= num_samples:
-                    return
+            try:
+                parsed_positions = ast.literal_eval(positions_raw)
+                if not isinstance(parsed_positions, (list, tuple)):
+                    raise ValueError("absolute-positions must be a list or tuple")
+                positions = [float(pos) for pos in parsed_positions]
+            except (ValueError, SyntaxError) as e:
+                print(f"Invalid absolute-positions in {section}: {e}")
+                continue
 
-                beamgage.spatial_results.update()
-                samples_x.append(beamgage.spatial_results.d_4sigma_x)
-                samples_y.append(beamgage.spatial_results.d_4sigma_y)
-                print(f"Sample {len(samples_x)}/{num_samples}", end="\r")
+            if not positions:
+                print(f"No positions provided for {section}. Skipping this measurement set.")
+                continue
 
-            beamgage.frameevents.OnNewFrame += sample_handler
-            beamgage.data_source.start()
+            for position_index, position in enumerate(positions, 1):
+                print(f"\nMoving stage to position {position_index}/{len(positions)}: {position:.4f} mm")
+                stage.move_absolute(position)
+                stage_error = stage.get_error()
+                if stage_error:
+                    print(f"Stage error after move: {stage_error}. Skipping this position.")
+                    continue
 
-            while len(samples_x) < num_samples:
-                time.sleep(0.01)
+                samples_x: list[float] = []
+                samples_y: list[float] = []
 
-            beamgage.data_source.stop()
-            beamgage.frameevents.OnNewFrame -= sample_handler
+                def sample_handler() -> None:
+                    # Prevent collecting more samples than needed
+                    if len(samples_x) >= num_samples:
+                        return
 
-            assert len(samples_x) == num_samples
-            assert len(samples_y) == num_samples
+                    beamgage.spatial_results.update()
+                    samples_x.append(beamgage.spatial_results.d_4sigma_x)
+                    samples_y.append(beamgage.spatial_results.d_4sigma_y)
+                    print(
+                        f"Position {position_index}: Sample {len(samples_x)}/{num_samples}",
+                        end="\r",
+                    )
 
-            mean_x: float = statistics.mean(samples_x)
-            mean_y: float = statistics.mean(samples_y)
+                beamgage.frameevents.OnNewFrame += sample_handler
+                beamgage.data_source.start()
 
-            # Formatting to 9 decimal places to show the increased precision
-            print(f"\nMean D4Sigma X: {mean_x:.9f} | Mean D4Sigma Y: {mean_y:.9f} (Count: {len(samples_x)})")
+                while len(samples_x) < num_samples:
+                    time.sleep(0.01)
+
+                beamgage.data_source.stop()
+                beamgage.frameevents.OnNewFrame -= sample_handler
+
+                mean_x: float = statistics.mean(samples_x)
+                mean_y: float = statistics.mean(samples_y)
+
+                # Formatting to 9 decimal places to show the increased precision
+                print(
+                    f"Position {position:.4f} mm -> Mean D4Sigma X: {mean_x:.9f} | Mean D4Sigma Y: {mean_y:.9f} (Count: {len(samples_x)})"
+                )
 
     finally:
         beamgage.shutdown()
