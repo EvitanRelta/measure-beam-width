@@ -9,9 +9,7 @@ from mock_stage import NewportStage  # from stage import NewportStage
 
 
 MOTOR_PORT: str = "COM5"
-MOTOR_BAUD: int = (
-    921600  # according to "CONEX-CC Single-Axis DC Motion Controller Documentation"
-)
+MOTOR_BAUD: int = 921600  # according to "CONEX-CC Single-Axis DC Motion Controller Documentation"
 BGSETUP_PATH: str = "./automation.bgsetup"
 OUTPUT_CSV: str = "output.csv"
 
@@ -52,11 +50,7 @@ def main() -> None:
         return
 
     # Get all measurement-set sections
-    measurement_sets = [
-        section
-        for section in config.sections()
-        if section.startswith("measurement-set-")
-    ]
+    measurement_sets = [section for section in config.sections() if section.startswith("measurement-set-")]
     if not measurement_sets:
         print("No measurement-set sections found in config.ini")
         return
@@ -85,7 +79,6 @@ def main() -> None:
     try:
         num_samples = config.getint("config", "num-samples")
         num_output_decimals = config.getint("config", "num-output-decimals")
-
 
         if num_output_decimals < 0:
             print("num-output-decimals cannot be negative. Using 0.")
@@ -135,9 +128,7 @@ def main() -> None:
 
             positions_raw = config[section].get("absolute-positions", "")
             if not positions_raw:
-                print(
-                    f"No absolute-positions defined in {section}. Skipping this measurement set."
-                )
+                print(f"No absolute-positions defined in {section}. Skipping this measurement set.")
                 continue
 
             try:
@@ -150,21 +141,15 @@ def main() -> None:
                 continue
 
             if not positions:
-                print(
-                    f"No positions provided for {section}. Skipping this measurement set."
-                )
+                print(f"No positions provided for {section}. Skipping this measurement set.")
                 continue
 
             for position_index, position in enumerate(positions, 1):
-                print(
-                    f"\nMoving stage to position {position_index}/{len(positions)}: {position:.4f} mm"
-                )
+                print(f"\nMoving stage to position {position_index}/{len(positions)}: {position:.4f} mm")
                 stage.move_absolute(position)
                 stage_error = stage.get_error()
                 if stage_error:
-                    print(
-                        f"Stage error after move: {stage_error}. Skipping this position."
-                    )
+                    print(f"Stage error after move: {stage_error}. Skipping this position.")
                     continue
 
                 samples_x: list[float] = []
