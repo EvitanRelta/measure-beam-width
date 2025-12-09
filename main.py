@@ -17,6 +17,24 @@ BGSETUP_PATH: str = "./automation.bgsetup"
 OUTPUT_CSV: str = "output.csv"
 
 
+def prompt_for_float_value(field_name: str, section_name: str) -> float | None:
+    if sys.stdin is None or not sys.stdin.isatty():
+        print(
+            f"{field_name.capitalize()} not provided in {section_name} and no interactive input is available."
+        )
+        return None
+
+    while True:
+        user_input = input(f"Enter {field_name} for {section_name}: ").strip()
+        if not user_input:
+            print("Input cannot be empty. Please enter a numeric value.")
+            continue
+        try:
+            return float(user_input)
+        except ValueError:
+            print("Invalid number. Please enter a numeric value.")
+
+
 def main() -> None:
     beamgage = BeamGagePy("camera", True)
     stage = NewportStage(MOTOR_PORT, MOTOR_BAUD)
@@ -82,13 +100,37 @@ def main() -> None:
                 csv_writer.writerow(["", "", "", "", "", "", ""])
                 csv_file.flush()
 
-            try:
-                gain_val: float = float(config[section]["gain"])
-                exp_val: float = float(config[section]["exposure"])
-                print(f"Gain: {gain_val}, Exposure: {exp_val}")
-            except (KeyError, ValueError) as e:
-                print(f"Invalid configuration in {section}: {e}")
-                continue
+            config_section = config[section]
+
+            gain_val_raw = config_section.get("gain", fallback="").strip()
+            gain_val: float | None = None
+            if gain_val_raw:
+                try:
+                    gain_val = float(gain_val_raw)
+                except ValueError:
+                    print(f"Invalid gain value in {section}: {gain_val_raw}")
+                    continue
+            else:
+                gain_val = prompt_for_float_value("gain", section)
+                if gain_val is None:
+                    print(f"Skipping {section} because gain could not be obtained.")
+                    continue
+
+            exp_val_raw = config_section.get("exposure", fallback="").strip()
+            exp_val: float | None = None
+            if exp_val_raw:
+                try:
+                    exp_val = float(exp_val_raw)
+                except ValueError:
+                    print(f"Invalid exposure value in {section}: {exp_val_raw}")
+                    continue
+            else:
+                exp_val = prompt_for_float_value("exposure", section)
+                if exp_val is None:
+                    print(f"Skipping {section} because exposure could not be obtained.")
+                    continue
+
+            print(f"Gain: {gain_val}, Exposure: {exp_val}")
 
             beamgage.data_source.gain = gain_val
             beamgage.data_source.exposure = exp_val
