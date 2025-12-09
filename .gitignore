@@ -1,6 +1,11 @@
+/__pycache__/
 /env/
+/.venv/
+/.ruff_cache/
 
 *.temp
 temp.*
 *.temp.*
 temp
+
+output.csv
