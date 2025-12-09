@@ -2,7 +2,14 @@ import time
 import statistics
 import configparser
 import mock_beamgagepy as beamgagepy
+
 # import beamgagepy
+
+
+MOTOR_PORT: str = "COM5"
+MOTOR_BAUD: int = 921600  # according to "CONEX-CC Single-Axis DC Motion Controller Documentation"
+BGSETUP_PATH: str = "./automation.bgsetup"
+NUM_SAMPLES: int = 75
 
 
 def main() -> None:
@@ -15,11 +22,10 @@ def main() -> None:
 
     try:
         # Restores computational methods (e.g. ISO Clip levels) and camera config
-        beamgage.save_load_setup.load_setup("automation.bgsetup")
+        beamgage.save_load_setup.load_setup(BGSETUP_PATH)
     except Exception:
         pass
 
-    SAMPLES_TARGET: int = 75
 
     # Read configuration from .ini file
     config = configparser.ConfigParser()
@@ -30,11 +36,7 @@ def main() -> None:
         return
 
     # Get all measurement-set sections
-    measurement_sets = [
-        section
-        for section in config.sections()
-        if section.startswith("measurement-set-")
-    ]
+    measurement_sets = [section for section in config.sections() if section.startswith("measurement-set-")]
     if not measurement_sets:
         print("No measurement-set sections found in config.ini")
         return
@@ -64,33 +66,31 @@ def main() -> None:
 
             def sample_handler() -> None:
                 # Prevent collecting more samples than needed
-                if len(samples_x) >= SAMPLES_TARGET:
+                if len(samples_x) >= NUM_SAMPLES:
                     return
 
                 beamgage.spatial_results.update()
                 samples_x.append(beamgage.spatial_results.d_4sigma_x)
                 samples_y.append(beamgage.spatial_results.d_4sigma_y)
-                print(f"Sample {len(samples_x)}/{SAMPLES_TARGET}", end="\r")
+                print(f"Sample {len(samples_x)}/{NUM_SAMPLES}", end="\r")
 
             beamgage.frameevents.OnNewFrame += sample_handler
             beamgage.data_source.start()
 
-            while len(samples_x) < SAMPLES_TARGET:
+            while len(samples_x) < NUM_SAMPLES:
                 time.sleep(0.01)
 
             beamgage.data_source.stop()
             beamgage.frameevents.OnNewFrame -= sample_handler
 
-            assert len(samples_x) == SAMPLES_TARGET
-            assert len(samples_y) == SAMPLES_TARGET
+            assert len(samples_x) == NUM_SAMPLES
+            assert len(samples_y) == NUM_SAMPLES
 
             mean_x: float = statistics.mean(samples_x)
             mean_y: float = statistics.mean(samples_y)
 
             # Formatting to 9 decimal places to show the increased precision
-            print(
-                f"\nMean D4Sigma X: {mean_x:.9f} | Mean D4Sigma Y: {mean_y:.9f} (Count: {len(samples_x)})"
-            )
+            print(f"\nMean D4Sigma X: {mean_x:.9f} | Mean D4Sigma Y: {mean_y:.9f} (Count: {len(samples_x)})")
 
     finally:
         beamgage.shutdown()
