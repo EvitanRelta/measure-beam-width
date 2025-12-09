@@ -1,9 +1,7 @@
 import time
 import statistics
 import configparser
-import mock_beamgagepy as beamgagepy
-
-# import beamgagepy
+from mock_beamgagepy import BeamGagePy  # from beamgagepy import BeamGagePy
 
 
 MOTOR_PORT: str = "COM5"
@@ -12,7 +10,7 @@ BGSETUP_PATH: str = "./automation.bgsetup"
 
 
 def main() -> None:
-    beamgage = beamgagepy.BeamGagePy("camera", True)
+    beamgage = BeamGagePy("camera", True)
 
     # Use full precision. Default is 3 dp. We set it to 15 (standard double precision).
     beamgage.spatial_results.precision = 15
