@@ -84,6 +84,12 @@ def main() -> None:
 
     try:
         num_samples = config.getint("config", "num-samples")
+        num_output_decimals = config.getint("config", "num-output-decimals")
+
+
+        if num_output_decimals < 0:
+            print("num-output-decimals cannot be negative. Using 0.")
+            num_output_decimals = 0
 
         for i, section in enumerate(measurement_sets, 1):
             print(f"\n--- {section} ({i}/{len(measurement_sets)}) ---")
@@ -197,16 +203,11 @@ def main() -> None:
                         exp_val,
                         len(samples_x),
                         position,
-                        mean_x,
-                        mean_y,
+                        round(mean_x, num_output_decimals),
+                        round(mean_y, num_output_decimals),
                     ]
                 )
                 csv_file.flush()
-
-                # Formatting to 9 decimal places to show the increased precision
-                print(
-                    f"Position {position:.4f} mm -> Mean D4Sigma X: {mean_x:.9f} | Mean D4Sigma Y: {mean_y:.9f} (Count: {len(samples_x)})"
-                )
 
     finally:
         csv_file.close()
