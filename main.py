@@ -1,139 +1,99 @@
-import sys
 import time
-import clr  # Requires: pip install pythonnet
-from stage import NewportStage
-from typing import List
-
-# ==========================================
-# CONFIGURATION
-# ==========================================
-MOTOR_PORT: str = "COM5"
-MOTOR_BAUD: int = 921600  # according to "CONEX-CC Single-Axis DC Motion Controller Documentation"
-
-# TODO: Verify this path matches your installed version of BeamGage.
-BEAMGAGE_DLL_PATH: str = r"C:\Program Files\Spiricon\BeamGage Professional\Automation\Spiricon.Automation.dll"
-
-# Number of frames to average per position
-READINGS_TO_AVERAGE: int = 100
-
-
-
-
-class BeamGageCamera:
-    """Handles Ophir BeamGage Automation via .NET interop."""
-
-    def __init__(self, dll_path: str) -> None:
-        print("[Camera] Initializing BeamGage Automation...")
-        if not self._load_dotnet(dll_path):
-            sys.exit(1)
-
-        try:
-            import Spiricon.Automation as SA  # type: ignore
-
-            # True = launch application if not running
-            self.bg = SA.AutomatedBeamGage(True)
-            self.bg.Instance.Start()
-            print("[Camera] Connected.")
-        except Exception as e:
-            print(f"[Camera] Connection Failed: {e}")
-            sys.exit(1)
-
-    def _load_dotnet(self, path: str) -> bool:
-        try:
-            sys.path.append(path)
-            clr.AddReference(path)  # type: ignore
-            return True
-        except Exception:
-            print(f"[Camera] Failed to load DLL at: {path}")
-            return False
-
-    def perform_ultracal(self) -> None:
-        """
-        Runs the Ultracal routine to zero background noise.
-        Requres user interaction.
-        """
-        print("\n--- CALIBRATION REQUIRED ---")
-        input("1. BLOCK the laser beam.\n2. Press [Enter]...")
-
-        print("[Camera] Running Ultracal...")
-        self.bg.Instance.Calibration.Ultracal()
-
-        input("3. UNBLOCK the laser beam.\n4. Press [Enter]...")
-        print("--- CALIBRATION COMPLETE ---\n")
-
-    def get_average_reading(self, count: int) -> float:
-        """
-        Collects 'count' valid frames and returns average D4Sigma Width.
-        """
-        print(f"[Camera] Acquiring {count} frames...")
-        readings: List[float] = []
-
-        # Ensure stream is active
-        self.bg.Instance.Start()
-
-        while len(readings) < count:
-            try:
-                # D4SigmaWidth is the ISO standard calculation
-                val = self.bg.Instance.Results.Simple.D4SigmaWidth
-                if val > 0:
-                    readings.append(val)
-            except Exception:
-                pass  # Ignore frames where calculation failed
-
-            time.sleep(0.05)
-
-        return sum(readings) / len(readings)
-
-
-# ==========================================
-# MAIN
-# ==========================================
+import statistics
+import configparser
+import mock_beamgagepy as beamgagepy
+# import beamgagepy
 
 
 def main() -> None:
-    print("--- Laser Characterization Script ---")
+    beamgage = beamgagepy.BeamGagePy("camera", True)
 
-    stage = NewportStage(MOTOR_PORT, MOTOR_BAUD)
-    cam = BeamGageCamera(BEAMGAGE_DLL_PATH)
+    # Use full precision. Default is 3 dp. We set it to 15 (standard double precision).
+    beamgage.spatial_results.precision = 15
 
-    # 1. Manual Setup (Gain/Exposure)
-    # TODO: This relies on the user looking at the BeamGage GUI window manually
-    print("\n[Setup] Please adjust Gain/Exposure in BeamGage now.")
-    print("Ensure beam is visible but not saturated.")
-    input("Press [Enter] when settings are ready...")
+    beamgage.data_source.stop()
 
-    # 2. Calibration
-    cam.perform_ultracal()
+    try:
+        # Restores computational methods (e.g. ISO Clip levels) and camera config
+        beamgage.save_load_setup.load_setup("automation.bgsetup")
+    except Exception:
+        pass
 
-    # 3. Measurement Loop
-    print("\n[System] Ready for measurements.")
+    SAMPLES_TARGET: int = 75
 
-    while True:
-        try:
-            val = input("\n>> Enter Target Position (mm) or 'q' to quit: ")
-            if val.lower() == "q":
-                break
+    # Read configuration from .ini file
+    config = configparser.ConfigParser()
+    try:
+        config.read("config.ini")
+    except Exception as e:
+        print(f"Error reading config.ini: {e}")
+        return
 
-            target_mm = float(val)
+    # Get all measurement-set sections
+    measurement_sets = [
+        section
+        for section in config.sections()
+        if section.startswith("measurement-set-")
+    ]
+    if not measurement_sets:
+        print("No measurement-set sections found in config.ini")
+        return
 
-            # Move
-            stage.move_absolute(target_mm)
+    try:
+        for i, section in enumerate(measurement_sets, 1):
+            print(f"\n--- {section} ({i}/{len(measurement_sets)}) ---")
 
-            # Wait for mechanical vibration to settle
-            time.sleep(1.0)
+            try:
+                gain_val: float = float(config[section]["gain"])
+                exp_val: float = float(config[section]["exposure"])
+                print(f"Gain: {gain_val}, Exposure: {exp_val}")
+            except (KeyError, ValueError) as e:
+                print(f"Invalid configuration in {section}: {e}")
+                continue
 
-            # Measure
-            avg = cam.get_average_reading(READINGS_TO_AVERAGE)
+            beamgage.data_source.gain = gain_val
+            beamgage.data_source.exposure = exp_val
 
-            print(f"RESULT: Pos={target_mm}mm | AvgSize={avg:.4f}um")
+            print("Running Ultracal...")
+            beamgage.data_source.ultracal()
 
-        except ValueError:
-            print("Invalid input. Please enter a number.")
-        except KeyboardInterrupt:
-            print("\nInterrupted.")
-            break
+            input("Unblock beam and press Enter to measure...")
 
-    print("[System] Exiting.")
+            samples_x: list[float] = []
+            samples_y: list[float] = []
+
+            def sample_handler() -> None:
+                # Prevent collecting more samples than needed
+                if len(samples_x) >= SAMPLES_TARGET:
+                    return
+
+                beamgage.spatial_results.update()
+                samples_x.append(beamgage.spatial_results.d_4sigma_x)
+                samples_y.append(beamgage.spatial_results.d_4sigma_y)
+                print(f"Sample {len(samples_x)}/{SAMPLES_TARGET}", end="\r")
+
+            beamgage.frameevents.OnNewFrame += sample_handler
+            beamgage.data_source.start()
+
+            while len(samples_x) < SAMPLES_TARGET:
+                time.sleep(0.01)
+
+            beamgage.data_source.stop()
+            beamgage.frameevents.OnNewFrame -= sample_handler
+
+            assert len(samples_x) == SAMPLES_TARGET
+            assert len(samples_y) == SAMPLES_TARGET
+
+            mean_x: float = statistics.mean(samples_x)
+            mean_y: float = statistics.mean(samples_y)
+
+            # Formatting to 9 decimal places to show the increased precision
+            print(
+                f"\nMean D4Sigma X: {mean_x:.9f} | Mean D4Sigma Y: {mean_y:.9f} (Count: {len(samples_x)})"
+            )
+
+    finally:
+        beamgage.shutdown()
 
 
 if __name__ == "__main__":
