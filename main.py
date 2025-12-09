@@ -2,7 +2,6 @@ import time
 import statistics
 import configparser
 import ast
-import sys
 import csv
 import os
 from mock_beamgagepy import BeamGagePy  # from beamgagepy import BeamGagePy
@@ -17,13 +16,7 @@ BGSETUP_PATH: str = "./automation.bgsetup"
 OUTPUT_CSV: str = "output.csv"
 
 
-def prompt_for_float_value(field_name: str, section_name: str) -> float | None:
-    if sys.stdin is None or not sys.stdin.isatty():
-        print(
-            f"{field_name.capitalize()} not provided in {section_name} and no interactive input is available."
-        )
-        return None
-
+def prompt_for_float_value(field_name: str, section_name: str) -> float:
     while True:
         user_input = input(f"Enter {field_name} for {section_name}: ").strip()
         if not user_input:
@@ -103,7 +96,7 @@ def main() -> None:
             config_section = config[section]
 
             gain_val_raw = config_section.get("gain", fallback="").strip()
-            gain_val: float | None = None
+            gain_val: float
             if gain_val_raw:
                 try:
                     gain_val = float(gain_val_raw)
@@ -112,12 +105,9 @@ def main() -> None:
                     continue
             else:
                 gain_val = prompt_for_float_value("gain", section)
-                if gain_val is None:
-                    print(f"Skipping {section} because gain could not be obtained.")
-                    continue
 
             exp_val_raw = config_section.get("exposure", fallback="").strip()
-            exp_val: float | None = None
+            exp_val: float
             if exp_val_raw:
                 try:
                     exp_val = float(exp_val_raw)
@@ -126,9 +116,6 @@ def main() -> None:
                     continue
             else:
                 exp_val = prompt_for_float_value("exposure", section)
-                if exp_val is None:
-                    print(f"Skipping {section} because exposure could not be obtained.")
-                    continue
 
             print(f"Gain: {gain_val}, Exposure: {exp_val}")
 
@@ -138,10 +125,7 @@ def main() -> None:
             print("Running Ultracal...")
             beamgage.data_source.ultracal()
 
-            if sys.stdin is None or not sys.stdin.isatty():
-                print("Unblock beam before measuring (no interactive input available).")
-            else:
-                input("Unblock beam and press Enter to measure...")
+            input("Unblock beam and press Enter to measure...")
 
             positions_raw = config[section].get("absolute-positions", "")
             if not positions_raw:
