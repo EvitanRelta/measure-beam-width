@@ -2,6 +2,7 @@ import time
 import statistics
 import configparser
 from mock_beamgagepy import BeamGagePy  # from beamgagepy import BeamGagePy
+from mock_stage import NewportStage  # from stage import NewportStage
 
 
 MOTOR_PORT: str = "COM5"
@@ -11,6 +12,7 @@ BGSETUP_PATH: str = "./automation.bgsetup"
 
 def main() -> None:
     beamgage = BeamGagePy("camera", True)
+    stage = NewportStage(MOTOR_PORT, MOTOR_BAUD)
 
     # Use full precision. Default is 3 dp. We set it to 15 (standard double precision).
     beamgage.spatial_results.precision = 15
