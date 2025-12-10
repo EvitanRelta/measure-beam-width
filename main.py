@@ -4,6 +4,7 @@ import configparser
 import ast
 import csv
 import os
+import win32api
 from mock_beamgagepy import BeamGagePy  # from beamgagepy import BeamGagePy
 from mock_stage import NewportStage  # from stage import NewportStage
 
@@ -12,6 +13,32 @@ MOTOR_PORT: str = "COM5"
 MOTOR_BAUD: int = 921600  # according to "CONEX-CC Single-Axis DC Motion Controller Documentation"
 BGSETUP_PATH: str = "./automation.bgsetup"
 OUTPUT_CSV: str = "output.csv"
+
+# Global variables, used for cleanup
+has_cleaned_up = False
+beamgage = None
+csv_file = None
+
+
+def handle_shutdown():
+    global has_cleaned_up, beamgage, csv_file
+    if has_cleaned_up:
+        return
+    has_cleaned_up = True
+    print("\n\nGracefully shutting down...")
+    if csv_file is not None:
+        csv_file.close()
+    if beamgage is not None:
+        beamgage.shutdown()
+    print("Successfully shutdown\n")
+
+
+# Handle Windows terminal 'X' close button
+def win_handler(sig, func=None):
+    if sig == 2:  # 2 is CTRL_CLOSE_EVENT
+        handle_shutdown()
+        return True
+    return False
 
 
 def prompt_for_float_value(field_name: str, section_name: str) -> float:
@@ -27,6 +54,10 @@ def prompt_for_float_value(field_name: str, section_name: str) -> float:
 
 
 def main() -> None:
+    # Handle Windows terminal 'X' close button
+    win32api.SetConsoleCtrlHandler(win_handler, True)
+
+    global beamgage, csv_file
     beamgage = BeamGagePy("camera", True)
     stage = NewportStage(MOTOR_PORT, MOTOR_BAUD)
 
@@ -159,7 +190,7 @@ def main() -> None:
                     # Prevent collecting more samples than needed
                     if len(samples_x) >= num_samples:
                         return
-
+                    assert beamgage is not None
                     beamgage.spatial_results.update()
                     samples_x.append(beamgage.spatial_results.d_4sigma_x)
                     samples_y.append(beamgage.spatial_results.d_4sigma_y)
@@ -198,10 +229,7 @@ def main() -> None:
                 )
 
     finally:
-        print("\n\nGracefully shutting down...")
-        csv_file.close()
-        beamgage.shutdown()
-        print("Successfully shutdown\n")
+        handle_shutdown()
 
 
 if __name__ == "__main__":
