@@ -4,6 +4,7 @@ import configparser
 import ast
 import csv
 import os
+import math
 import win32api
 from mock_beamgagepy import BeamGagePy  # from beamgagepy import BeamGagePy
 from mock_stage import NewportStage  # from stage import NewportStage
@@ -185,15 +186,37 @@ def main() -> None:
 
                 samples_x: list[float] = []
                 samples_y: list[float] = []
+                zero_sample_count = 0
+                nan_sample_count = 0
 
                 def sample_handler() -> None:
+                    nonlocal zero_sample_count, nan_sample_count
                     # Prevent collecting more samples than needed
                     if len(samples_x) >= num_samples:
                         return
                     assert beamgage is not None
                     beamgage.spatial_results.update()
-                    samples_x.append(beamgage.spatial_results.d_4sigma_x)
-                    samples_y.append(beamgage.spatial_results.d_4sigma_y)
+                    d4sigma_x = beamgage.spatial_results.d_4sigma_x
+                    d4sigma_y = beamgage.spatial_results.d_4sigma_y
+
+                    invalid_sample = False
+                    for value in (d4sigma_x, d4sigma_y):
+                        if value == 0:
+                            zero_sample_count += 1
+                            invalid_sample = True
+                        else:
+                            try:
+                                if math.isnan(value):
+                                    nan_sample_count += 1
+                                    invalid_sample = True
+                            except TypeError:
+                                pass
+
+                    if invalid_sample:
+                        return
+
+                    samples_x.append(d4sigma_x)
+                    samples_y.append(d4sigma_y)
                     print(
                         f"Position {position_index}: Sample {len(samples_x)}/{num_samples}",
                         end="\r",
@@ -207,6 +230,10 @@ def main() -> None:
 
                 beamgage.data_source.stop()
                 beamgage.frameevents.OnNewFrame -= sample_handler
+
+                print(
+                    f"Position {position_index}: ignored {zero_sample_count} zero readings and {nan_sample_count} NaN readings"
+                )
 
                 mean_x: float = round(statistics.mean(samples_x), num_output_decimals)
                 mean_y: float = round(statistics.mean(samples_y), num_output_decimals)
